@@ -231,8 +231,11 @@ while true; do
       read -rp "节点备注: " REMARK
       UUID=$(cat /proc/sys/kernel/random/uuid)
       KEYS=$($XRAY_BIN x25519)
+      echo $KEYS
       PRIV_KEY=$(echo "$KEYS" | awk '/Private/ {print $3}')
       PUB_KEY=$(echo "$KEYS" | awk '/Public/ {print $3}')
+      echo $PRIV_KEY
+      echo $PUB_KEY
       SHORT_ID=$(head -c 4 /dev/urandom | xxd -p)
       SNI="www.cloudflare.com"
 
