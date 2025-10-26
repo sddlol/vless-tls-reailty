@@ -4,7 +4,8 @@
 
 - ✅ 安装 Xray 最新版本
 - ✅ 支持 VLESS + Reality 模式
-- ✅ 支持中转模式：你可以将本机设置为 VLESS 流量入口，自动中转到其他节点
+- ✅速度测试功能(由speedtest.net提供)
+- ✅IP质量检测(感谢xy开源)
 - ✅ 自动生成 VLESS 连接链接，直接用于客户端导入
 
 ---
@@ -14,4 +15,4 @@
 > 请使用具有 `root` 权限的 VPS 或LXC 运行：
 
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/sdd-tes/vless-tls-reailty/main/xrayvless.sh)
+bash <(curl -Ls https://raw.githubusercontent.com/sddlol/vless-tls-reailty/main/xrayvless.sh)
