@@ -147,6 +147,30 @@ stail[stoday]="今日IP检测量："
 stail[stotal]="；总检测量："
 stail[thanks]="。感谢xy开源此脚本！"
 stail[link]="$Font_I报告链接：$Font_U"
+# (新增) 流媒体和AI检测的中文提示
+sinfo[media]="正在检测流媒体服务商 "
+sinfo[ai]="正在检测AI服务商 "
+sinfo[lmedia]=21
+sinfo[lai]=17
+
+smedia[yes]=" $Back_Green$Font_White 解锁 $Font_Suffix  "
+smedia[no]=" $Back_Red$Font_White 屏蔽 $Font_Suffix  "
+smedia[bad]=" $Back_Red$Font_White 失败 $Font_Suffix  "
+smedia[pending]="$Back_Yellow$Font_White 待支持 $Font_Suffix "
+smedia[cn]=" $Back_Red$Font_White 中国 $Font_Suffix  "
+smedia[noprem]="$Back_Red$Font_White 禁会员 $Font_Suffix "
+smedia[org]="$Back_Yellow$Font_White 仅自制 $Font_Suffix "
+smedia[web]="$Back_Yellow$Font_White 仅网页 $Font_Suffix "
+smedia[app]=" $Back_Yellow$Font_White 仅APP $Font_Suffix "
+smedia[idc]=" $Back_Yellow$Font_White 机房 $Font_Suffix  "
+smedia[native]=" $Back_Green$Font_White 原生 $Font_Suffix  "
+smedia[dns]="  $Back_Yellow$Font_White DNS $Font_Suffix  "
+smedia[nodata]="         "
+smedia[title]="五、流媒体及AI服务解锁检测"
+smedia[meida]="服务商： "
+smedia[status]="状态：   "
+smedia[region]="地区：   "
+smedia[type]="方式：   "
 ;;
 *)echo -ne "ERROR: Language not supported!"
 esac
@@ -942,38 +966,397 @@ run_ip_quality_check() {
     green "检测完成。"
     read -rp "按任意键返回菜单..."
 }
+run_streaming_check() {
+    green "--- 4. 流媒体解锁检测 (移植版, 新格式) ---"
+    
+    # 只需要 UA 和 Cookie 变量
+    declare UA_Browser
+    declare Media_Cookie
 
-check_deps() {
-    green "正在检查基础依赖 (curl, wget, jq, xxd, tar, bc, clear)..."
-    local missing=0
-    for cmd in curl wget jq xxd tar bc clear; do
-        if ! command -v $cmd &> /dev/null; then
-            missing=1
-            yellow "未找到 $cmd..."
+    # (移植) 所有需要的辅助函数，定义为本地函数
+    
+    # --- DNS/IP 辅助函数 (保持不变) ---
+    check_ip_valide(){ local IPPattern='^(\<([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])\>\.){3}\<([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])\>$'; IP="$1"; if [[ $IP =~ $IPPattern ]];then return 0; else return 1; fi; }; calc_ip_net(){ sip="$1"; snetmask="$2"; check_ip_valide "$sip"; if [ $? -ne 0 ];then echo ""; return 1; fi; local ipFIELD1=$(echo "$sip"|cut -d. -f1); local ipFIELD2=$(echo "$sip"|cut -d. -f2); local ipFIELD3=$(echo "$sip"|cut -d. -f3); local ipFIELD4=$(echo "$sip"|cut -d. -f4); local netmaskFIELD1=$(echo "$snetmask"|cut -d. -f1); local netmaskFIELD2=$(echo "$snetmask"|cut -d. -f2); local netmaskFIELD3=$(echo "$snetmask"|cut -d. -f3); local netmaskFIELD4=$(echo "$snetmask"|cut -d. -f4); local tmpret1=$((ipFIELD1&netmaskFIELD1)); local tmpret2=$((ipFIELD2&netmaskFIELD2)); local tmpret3=$((ipFIELD3&netmaskFIELD3)); local tmpret4=$((ipFIELD4&netmaskFIELD4)); echo "$tmpret1.$tmpret2.$tmpret3.$tmpret4"; }; Check_DNS_IP(){ if [ "$1" != "${1#*[0-9].[0-9]}" ];then if [ "$(calc_ip_net "$1" 255.0.0.0)" == "10.0.0.0" ];then echo 0; elif [ "$(calc_ip_net "$1" 255.240.0.0)" == "172.16.0.0" ];then echo 0; elif [ "$(calc_ip_net "$1" 255.255.0.0)" == "169.254.0.0" ];then echo 0; elif [ "$(calc_ip_net "$1" 255.255.0.0)" == "192.168.0.0" ];then echo 0; elif [ "$(calc_ip_net "$1" 255.255.255.0)" == "$(calc_ip_net "$2" 255.255.255.0)" ];then echo 0; else echo 1; fi; elif [ "$1" != "${1#*[0-9a-fA-F]:*}" ];then if [ "${1:0:3}" == "fe8" ];then echo 0; elif [ "${1:0:3}" == "FE8" ];then echo 0; elif [ "${1:0:2}" == "fc" ];then echo 0; elif [ "${1:0:2}" == "FC" ];then echo 0; elif [ "${1:0:2}" == "fd" ];then echo 0; elif [ "${1:0:2}" == "FD" ];then echo 0; elif [ "${1:0:2}" == "ff" ];then echo 0; elif [ "${1:0:2}" == "FF" ];then echo 0; else echo 1; fi; else echo 0; fi; }; Check_DNS_1(){ local resultdns=$(nslookup $1 2>/dev/null); local resultinlines=(${resultdns//$'\n'/ }); local resultindex=0; for i in ${resultinlines[*]};do if [[ $i == "Name:" ]];then local resultdnsindex=$((resultindex+3)); break; fi; resultindex=$((resultindex+1)); done; echo $(Check_DNS_IP ${resultinlines[$resultdnsindex]} ${resultinlines[1]}); }; Check_DNS_2(){ local resultdnstext=$(dig $1 2>/dev/null|grep "ANSWER:"); local resultdnstext=${resultdnstext#*"ANSWER: "}; local resultdnstext=${resultdnstext%", AUTHORITY:"*}; if [ "$resultdnstext" == "0" ]||[ "$resultdnstext" == "1" ]||[ "$resultdnstext" == "2" ];then echo 0; else echo 1; fi; }; Check_DNS_3(){ local resultdnstext=$(dig "test$RANDOM$RANDOM.$1" 2>/dev/null|grep "ANSWER:"); local resultdnstext=${resultdnstext#*"ANSWER: "}; local resultdnstext=${resultdnstext%", AUTHORITY:"*}; if [ "$resultdnstext" == "0" ];then echo 1; else echo 0; fi; }; Get_Unlock_Type_Str(){ local type_str="原生"; while [ $# -ne 0 ];do if [ "$1" = "0" ];then type_str="DNS"; break; fi; shift; done; echo "$type_str"; }
+
+    # --- UA 和 Cookie 辅助函数 ---
+    generate_random_user_agent(){
+        declare -A browsers=(
+            [Chrome]="139.0.7258.128 138.0.7204.102 137.0.7151.122 136.0.7103.116"
+            [Firefox]="132.0 131.0 130.0 129.0"
+        )
+        local browsers_keys=(${!browsers[@]})
+        local random_browser_index=$((RANDOM%${#browsers_keys[@]}))
+        local browser=${browsers_keys[random_browser_index]}
+        case $browser in
+        Chrome)local versions=(${browsers[Chrome]})
+            local version=${versions[RANDOM%${#versions[@]}]}
+            UA_Browser="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$version Safari/537.36"
+        ;;
+        Firefox)local versions=(${browsers[Firefox]})
+            local version=${versions[RANDOM%${#versions[@]}]}
+            UA_Browser="Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:$version) Gecko/20100101 Firefox/$version"
+        esac
+    }
+    read_ref(){
+        Media_Cookie=$(curl $CurlARG -sL --retry 3 --max-time 10 "${rawgithub}main/ref/cookies.txt")
+    }
+
+    # --- 核心检测函数 (已修改为直接打印) ---
+    MediaUnlockTest_TikTok(){
+        local service_name="TikTok"
+        # 移除进度条 local temp_info="$Font_Cyan$Font_B${sinfo[media]}${Font_I}$service_name $Font_Suffix"; ((ibar_step+=3)); show_progress_bar "$temp_info" $((40-7-${sinfo[lmedia]}))& bar_pid="$!"&&disown "$bar_pid"; trap "kill_progress_bar" RETURN
+        local checkunlockurl="tiktok.com"
+        local result1=$(Check_DNS_1 $checkunlockurl)
+        local result3=$(Check_DNS_3 $checkunlockurl)
+        local resultunlocktype=$(Get_Unlock_Type_Str $result1 $result3) # 获取 "原生" 或 "DNS"
+        local Ftmpresult=$(curl $CurlARG -$1 --user-agent "$UA_Browser" -sL -m 10 "https://www.tiktok.com/")
+        if [[ $Ftmpresult == "curl"* ]];then
+            red "$service_name: 失败 (Curl Error)"
+            return
         fi
-    done
+        local FRegion=$(echo $Ftmpresult|grep '"region":'|sed 's/.*"region"//'|cut -f2 -d'"')
+        if [ -n "$FRegion" ];then
+            if [ "$resultunlocktype" == "DNS" ]; then
+                yellow "$service_name: 解锁 $resultunlocktype [$FRegion]"
+            else
+                green "$service_name: 解锁 $resultunlocktype [$FRegion]"
+            fi
+            return
+        fi
+        local STmpresult=$(curl $CurlARG -$1 --user-agent "$UA_Browser" -sL -m 10 -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9" -H "Accept-Encoding: gzip" -H "Accept-Language: en" "https://www.tiktok.com"|gunzip 2>/dev/null)
+        local SRegion=$(echo $STmpresult|grep '"region":'|sed 's/.*"region"//'|cut -f2 -d'"')
+        if [ -n "$SRegion" ];then
+             yellow "$service_name: 解锁 机房 [$SRegion]" # 特殊标记机房
+            return
+        else
+            red "$service_name: 失败"
+            return
+        fi
+    }
+    MediaUnlockTest_DisneyPlus(){
+         local service_name="Disney+"
+        # 移除进度条 local temp_info="$Font_Cyan$Font_B${sinfo[media]}${Font_I}$service_name $Font_Suffix"; ((ibar_step+=3)); show_progress_bar "$temp_info" $((40-8-${sinfo[lmedia]}))& bar_pid="$!"&&disown "$bar_pid"; trap "kill_progress_bar" RETURN
+        local checkunlockurl="disneyplus.com"
+        local result1=$(Check_DNS_1 $checkunlockurl)
+        local result3=$(Check_DNS_3 $checkunlockurl)
+        local resultunlocktype=$(Get_Unlock_Type_Str $result1 $result3)
+        local PreAssertion=$(curl $CurlARG -$1 --user-agent "$UA_Browser" -s --max-time 10 -X POST "https://disney.api.edge.bamgrid.com/devices" -H "authorization: Bearer ZGlzbmV5JmJyb3dzZXImMS4wLjA.Cu56AgSfBTDag5NiRA81oLHkDZfu5L3CKadnefEAY84" -H "content-type: application/json; charset=UTF-8" -d '{"deviceFamily":"browser","applicationRuntime":"chrome","deviceProfile":"windows","attributes":{}}' 2>&1)
+        if [[ $PreAssertion == "curl"* ]]; then red "$service_name: 失败 (Curl Error 1)"; return; fi
+        if ! (echo "$PreAssertion"|jq . >/dev/null 2>&1); then red "$service_name: 失败 (JSON Error 1)"; return; fi
+        
+        local assertion=$(echo $PreAssertion|jq -r '.assertion')
+        local PreDisneyCookie=$(echo "$Media_Cookie"|sed -n '1p')
+        local disneycookie=$(echo $PreDisneyCookie|sed "s/DISNEYASSERTION/$assertion/g")
+        local TokenContent=$(curl $CurlARG -$1 --user-agent "$UA_Browser" -s --max-time 10 -X POST "https://disney.api.edge.bamgrid.com/token" -H "authorization: Bearer ZGlzbmV5JmJyb3dzZXImMS4wLjA.Cu56AgSfBTDag5NiRA81oLHkDZfu5L3CKadnefEAY84" -d "$disneycookie" 2>&1)
+        if ! (echo "$TokenContent"|jq . >/dev/null 2>&1); then red "$service_name: 失败 (JSON Error 2)"; return; fi
+        
+        local isBanned=$(echo $TokenContent|jq -r 'select(.error_description == "forbidden-location") | .error_description')
+        local is403=$(echo $TokenContent|grep '403 ERROR')
+        if [ -n "$isBanned" ]||[ -n "$is403" ];then red "$service_name: 失败 (Region Block)"; return; fi
+        
+        local fakecontent=$(echo "$Media_Cookie"|sed -n '8p')
+        local refreshToken=$(echo $TokenContent|jq -r '.refresh_token')
+        local disneycontent=$(echo $fakecontent|sed "s/ILOVEDISNEY/$refreshToken/g")
+        local tmpresult=$(curl $CurlARG -$1 --user-agent "$UA_Browser" -X POST -sSL --max-time 10 "https://disney.api.edge.bamgrid.com/graph/v1/device/graphql" -H "authorization: ZGlzbmV5JmJyb3dzZXImMS4wLjA.Cu56AgSfBTDag5NiRA81oLHkDZfu5L3CKadnefEAY84" -d "$disneycontent" 2>&1)
+        if ! (echo "$tmpresult"|jq . >/dev/null 2>&1);then red "$service_name: 失败 (JSON Error 3)"; return; fi
+        
+        local previewcheck=$(curl $CurlARG -$1 -s -o /dev/null -L --max-time 10 -w '%{url_effective}\n' "https://disneyplus.com"|grep preview)
+        local isUnavailable=$(echo $previewcheck|grep 'unavailable')
+        local region=$(echo $tmpresult|jq -r '.extensions.sdk.session.location.countryCode')
+        local inSupportedLocation=$(echo $tmpresult|jq -r '.extensions.sdk.session.inSupportedLocation')
+
+        if [[ $region == "JP" ]]; then
+            if [ "$resultunlocktype" == "DNS" ]; then yellow "$service_name: 解锁 $resultunlocktype [JP]"; else green "$service_name: 解锁 $resultunlocktype [JP]"; fi
+        elif [ -n "$region" ] && [[ $inSupportedLocation == "false" ]] && [ -z "$isUnavailable" ]; then
+            yellow "$service_name: 待支持 [$region]"
+        elif [ -n "$region" ] && [ -n "$isUnavailable" ]; then
+            red "$service_name: 失败 (Unavailable)"
+        elif [ -n "$region" ] && [[ $inSupportedLocation == "true" ]]; then
+             if [ "$resultunlocktype" == "DNS" ]; then yellow "$service_name: 解锁 $resultunlocktype [$region]"; else green "$service_name: 解锁 $resultunlocktype [$region]"; fi
+        elif [ -z "$region" ]; then
+             red "$service_name: 失败 (No Region)"
+        else
+            red "$service_name: 失败 (Unknown)"
+        fi
+    }
+    MediaUnlockTest_Netflix(){
+        local temp_info="$Font_Cyan$Font_B${sinfo[media]}${Font_I}Netflix $Font_Suffix"
+        ((ibar_step+=3))
+        show_progress_bar "$temp_info" $((40-8-${sinfo[lmedia]}))&
+        bar_pid="$!"&&disown "$bar_pid"
+        trap "kill_progress_bar" RETURN
+        # (修正) 移除 netflix=()
+        local checkunlockurl="netflix.com"
+        local result1=$(Check_DNS_1 $checkunlockurl)
+        local result2=$(Check_DNS_2 $checkunlockurl)
+        local result3=$(Check_DNS_3 $checkunlockurl)
+        local resultunlocktype=$(Get_Unlock_Type $result1 $result2 $result3)
+        local result1=$(curl $CurlARG -$1 --user-agent "$UA_Browser" -fsL -X GET --max-time 10 --tlsv1.3 "https://www.netflix.com/title/81280792" 2>&1)
+        local result2=$(curl $CurlARG -$1 --user-agent "$UA_Browser" -fsL -X GET --max-time 10 --tlsv1.3 "https://www.netflix.com/title/70143836" 2>&1)
+        if [ -z "$result1" ]||[ -z "$result2" ];then
+            netflix[ustatus]="${smedia[bad]}"
+            netflix[uregion]="${smedia[nodata]}"
+            netflix[utype]="${smedia[nodata]}"
+            return
+        fi
+        local region=$(echo "$result1"|grep -o 'data-country="[A-Z]*"'|sed 's/.*="\([A-Z]*\)"/\1/'|head -n1)
+        [[ -z $region ]]&&region=$(echo "$result2"|grep -o 'data-country="[A-Z]*"'|sed 's/.*="\([A-Z]*\)"/\1/'|head -n1)
+        result1=$(echo $result1|grep 'Oh no!')
+        result2=$(echo $result1|grep 'Oh no!')
+        if [ -n "$result1" ]&&[ -n "$result2" ];then
+            netflix[ustatus]="${smedia[org]}"
+            netflix[uregion]="  [$region]   "
+            netflix[utype]="$resultunlocktype"
+            return
+        fi
+        if [ -z "$result1" ]||[ -z "$result2" ];then
+            netflix[ustatus]="${smedia[yes]}"
+            netflix[uregion]="  [$region]   "
+            netflix[utype]="$resultunlocktype"
+            return
+        fi
+        netflix[ustatus]="${smedia[no]}"
+        netflix[uregion]="${smedia[nodata]}"
+        netflix[utype]="${smedia[nodata]}"
+    }
+    MediaUnlockTest_Netflix(){
+        local service_name="Netflix"
+        # 移除进度条 local temp_info="$Font_Cyan$Font_B${sinfo[media]}${Font_I}$service_name $Font_Suffix"; ((ibar_step+=3)); show_progress_bar "$temp_info" $((40-8-${sinfo[lmedia]}))& bar_pid="$!"&&disown "$bar_pid"; trap "kill_progress_bar" RETURN
+        local checkunlockurl="netflix.com"
+        local result1_dns=$(Check_DNS_1 $checkunlockurl)
+        local result2_dns=$(Check_DNS_2 $checkunlockurl)
+        local result3_dns=$(Check_DNS_3 $checkunlockurl)
+        local resultunlocktype=$(Get_Unlock_Type_Str $result1_dns $result2_dns $result3_dns)
+        local result1=$(curl $CurlARG -$1 --user-agent "$UA_Browser" -fsL -X GET --max-time 10 --tlsv1.3 "https://www.netflix.com/title/81280792" 2>&1)
+        local result2=$(curl $CurlARG -$1 --user-agent "$UA_Browser" -fsL -X GET --max-time 10 --tlsv1.3 "https://www.netflix.com/title/70143836" 2>&1)
+        
+        if [ -z "$result1" ] && [ -z "$result2" ]; then # Both curl failed
+             red "$service_name: 失败 (Curl Error)"
+             return
+        fi
+
+        local region=""
+        # Try to get region from result1 first, then result2 if result1 failed
+        if [ -n "$result1" ]; then
+            region=$(echo "$result1"|grep -o 'data-country="[A-Z]*"'|sed 's/.*="\([A-Z]*\)"/\1/'|head -n1)
+        fi
+         if [ -z "$region" ] && [ -n "$result2" ]; then # If region still empty and result2 succeeded
+            region=$(echo "$result2"|grep -o 'data-country="[A-Z]*"'|sed 's/.*="\([A-Z]*\)"/\1/'|head -n1)
+        fi
+
+        # Check for "Oh no!" - indicates Originals Only
+        local originals_only=0
+        if [ -n "$result1" ] && echo "$result1" | grep -q 'Oh no!'; then originals_only=1; fi
+        if [ -n "$result2" ] && echo "$result2" | grep -q 'Oh no!'; then originals_only=$((originals_only + 1)); fi # Count how many "Oh no!" we got
+
+        if [ "$originals_only" -eq 2 ]; then # Both titles showed "Oh no!"
+            yellow "$service_name: 仅自制 [$region]"
+        elif [ "$originals_only" -eq 0 ] && [ -n "$region" ]; then # Neither showed "Oh no!", region found
+             if [ "$resultunlocktype" == "DNS" ]; then yellow "$service_name: 解锁 $resultunlocktype [$region]"; else green "$service_name: 解锁 $resultunlocktype [$region]"; fi
+        elif [ "$originals_only" -gt 0 ] && [ -n "$region" ]; then # One showed "Oh no!", one didn't - Still consider it unlocked
+             if [ "$resultunlocktype" == "DNS" ]; then yellow "$service_name: 解锁 $resultunlocktype [$region]"; else green "$service_name: 解锁 $resultunlocktype [$region]"; fi
+        else # No region found or other errors
+             red "$service_name: 失败"
+        fi
+    }
+    MediaUnlockTest_YouTube_Premium(){
+        local service_name="YouTube"
+        # 移除进度条 local temp_info="$Font_Cyan$Font_B${sinfo[media]}${Font_I}$service_name $Font_Suffix"; ((ibar_step+=3)); show_progress_bar "$temp_info" $((40-8-${sinfo[lmedia]}))& bar_pid="$!"&&disown "$bar_pid"; trap "kill_progress_bar" RETURN
+        local checkunlockurl="www.youtube.com"
+        local result1=$(Check_DNS_1 $checkunlockurl)
+        local result3=$(Check_DNS_3 $checkunlockurl)
+        local resultunlocktype=$(Get_Unlock_Type_Str $result1 $result3)
+        local tmpresult=$(curl $CurlARG -$1 --max-time 10 -sSL -H "Accept-Language: en" "https://www.youtube.com/premium" 2>&1)
+        if [[ $tmpresult == "curl"* ]];then red "$service_name: 失败 (Curl Error)"; return; fi
+        
+        local isCN=$(echo $tmpresult|grep 'www.google.cn')
+        if [ -n "$isCN" ];then red "$service_name: 失败 (CN Redirect)"; return; fi
+        
+        local isNotAvailable=$(echo $tmpresult|grep 'Premium is not available in your country')
+        local region=$(echo $tmpresult|sed -n 's/.*"contentRegion":"\([^"]*\)".*/\1/p')
+        local isAvailable=$(echo $tmpresult|grep 'ad-free')
+
+        if [ -n "$isNotAvailable" ];then
+            yellow "$service_name: 仅免费版可用 [$region]" # Changed "No Premium" to this
+        elif [ -n "$isAvailable" ] && [ -n "$region" ];then
+             if [ "$resultunlocktype" == "DNS" ]; then yellow "$service_name: 解锁 Premium $resultunlocktype [$region]"; else green "$service_name: 解锁 Premium $resultunlocktype [$region]"; fi
+        elif [ -z "$region" ] && [ -n "$isAvailable" ];then # Premium available but no region detected
+             if [ "$resultunlocktype" == "DNS" ]; then yellow "$service_name: 解锁 Premium $resultunlocktype [??]"; else green "$service_name: 解锁 Premium $resultunlocktype [??]"; fi
+        else
+            red "$service_name: 失败 (Unknown)"
+        fi
+    }
+   
+MediaUnlockTest_PrimeVideo_Region(){
+         local service_name="AmazonPV"
+        # 移除进度条 local temp_info="$Font_Cyan$Font_B${sinfo[media]}${Font_I}Amazon $Font_Suffix"; ((ibar_step+=3)); show_progress_bar "$temp_info" $((40-7-${sinfo[lmedia]}))& bar_pid="$!"&&disown "$bar_pid"; trap "kill_progress_bar" RETURN
+        local checkunlockurl="www.primevideo.com"
+        local result1=$(Check_DNS_1 $checkunlockurl)
+        local result3=$(Check_DNS_3 $checkunlockurl)
+        local resultunlocktype=$(Get_Unlock_Type_Str $result1 $result3)
+        local tmpresult=$(curl $CurlARG -$1 --user-agent "$UA_Browser" -sL --max-time 10 "https://www.primevideo.com" 2>&1)
+        if [[ $tmpresult == "curl"* ]];then red "$service_name: 失败 (Curl Error)"; return; fi
+        
+        local region=$(echo $tmpresult|grep '"currentTerritory":'|sed 's/.*currentTerritory//'|cut -f3 -d'"'|head -n 1)
+        if [ -n "$region" ];then
+             if [ "$resultunlocktype" == "DNS" ]; then yellow "$service_name: 解锁 $resultunlocktype [$region]"; else green "$service_name: 解锁 $resultunlocktype [$region]"; fi
+        else
+            red "$service_name: 失败"
+        fi
+    }
+    MediaUnlockTest_Spotify(){
+        local service_name="Spotify"
+        # 移除进度条 local temp_info="$Font_Cyan$Font_B${sinfo[media]}${Font_I}$service_name $Font_Suffix"; ((ibar_step+=3)); show_progress_bar "$temp_info" $((40-8-${sinfo[lmedia]}))& bar_pid="$!"&&disown "$bar_pid"; trap "kill_progress_bar" RETURN
+        local checkunlockurl="spclient.wg.spotify.com" # Using obscured domain
+        local result1=$(Check_DNS_1 $checkunlockurl)
+        local result3=$(Check_DNS_3 $checkunlockurl)
+        local resultunlocktype=$(Get_Unlock_Type_Str $result1 $result3)
+        # Using obscured domain in curl call too
+        local tmpresult=$(curl $CurlARG -$1 --user-agent "$UA_Browser" -s --max-time 10 -X POST "https://spclient.wg.spotify.com/signup/public/v1/account" -d "birth_day=11&birth_month=11&birth_year=2000&collect_personal_info=undefined&creation_flow=&creation_point=https%3A%2F%2Fwww.spotify.com%2Fhk-en%2F&displayname=Gay%20Lord&gender=male&iagree=1&key=a1e486e2729f46d6bb368d6b2bcda326&platform=www&referrer=&send-email=0&thirdpartyemail=0&identifier_token=AgE6YTvEzkReHNfJpO114514" -H "Accept-Language: en" 2>&1)
+        
+        if echo "$tmpresult"|jq . >/dev/null 2>&1;then
+            local region=$(echo $tmpresult|jq -r '.country')
+            local isLaunched=$(echo $tmpresult|jq -r '.is_country_launched')
+            local StatusCode=$(echo $tmpresult|jq -r '.status')
+            
+            if [ "$StatusCode" = "311" ] && [ "$isLaunched" = "true" ]; then
+                 if [ "$resultunlocktype" == "DNS" ]; then yellow "$service_name: 解锁 $resultunlocktype [$region]"; else green "$service_name: 解锁 $resultunlocktype [$region]"; fi
+            elif [ "$StatusCode" = "320" ] || [ "$StatusCode" = "120" ]; then
+                red "$service_name: 失败 (Region Block)"
+            else
+                red "$service_name: 失败 (API Status $StatusCode)"
+            fi
+        else
+           red "$service_name: 失败 (API Error)"
+        fi
+    }
+    OpenAITest(){
+        local service_name="ChatGPT"
+        # 移除进度条 local temp_info="$Font_Cyan$Font_B${sinfo[ai]}${Font_I}$service_name $Font_Suffix"; ((ibar_step+=3)); show_progress_bar "$temp_info" $((40-8-${sinfo[lai]}))& bar_pid="$!"&&disown "$bar_pid"; trap "kill_progress_bar" RETURN
+        local checkunlockurl1="chat.openai.com"; local checkunlockurl2="ios.chat.openai.com"; local checkunlockurl3="api.openai.com"
+        local r1=$(Check_DNS_1 $checkunlockurl1); local r2=$(Check_DNS_2 $checkunlockurl1); local r3=$(Check_DNS_3 $checkunlockurl1)
+        local r4=$(Check_DNS_1 $checkunlockurl2); local r5=$(Check_DNS_2 $checkunlockurl2); local r6=$(Check_DNS_3 $checkunlockurl2)
+        local r7=$(Check_DNS_1 $checkunlockurl3); local r8=$(Check_DNS_3 $checkunlockurl3)
+        local resultunlocktype=$(Get_Unlock_Type_Str $r1 $r2 $r3 $r4 $r5 $r6 $r7 $r8)
+        
+        # Test API access (platform.openai.com requirement)
+        local tmpresult1=$(curl $CurlARG -$1 -sS --max-time 10 'https://api.openai.com/compliance/cookie_requirements' -H 'authority: api.openai.com' -H 'accept: */*' -H 'accept-language: en-US,en;q=0.9' -H 'authorization: Bearer null' -H 'content-type: application/json' -H 'origin: https://platform.openai.com' -H 'referer: https://platform.openai.com/' -H "user-agent: $UA_Browser" 2>&1)
+        # Test iOS App access endpoint
+        local tmpresult2=$(curl $CurlARG -$1 -sS --max-time 10 'https://ios.chat.openai.com/' -H 'authority: ios.chat.openai.com' -H 'accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7' -H 'accept-language: en-US,en;q=0.9' -H "user-agent: $UA_Browser" 2>&1)
+        
+        local api_blocked=$(echo $tmpresult1|grep -q 'unsupported_country' && echo "yes")
+        local ios_blocked=$(echo $tmpresult2|grep -q 'VPN' && echo "yes")
+        local countryCode=""
+        # Faster way to get country code if curl succeeds
+        if [[ $tmpresult1 != "curl"* ]]; then
+             countryCode="$(curl $CurlARG --max-time 5 -sS https://chat.openai.com/cdn-cgi/trace 2>&1|grep "loc="|awk -F= '{print $2}')"
+        elif [[ $tmpresult2 != "curl"* ]]; then # Fallback if API curl failed but iOS didn't
+             countryCode="$(curl $CurlARG --max-time 5 -sS https://chat.openai.com/cdn-cgi/trace 2>&1|grep "loc="|awk -F= '{print $2}')"
+        fi
+         [ -z "$countryCode" ] && countryCode="??" # Default if trace fails
+
+        if [ "$api_blocked" != "yes" ] && [ "$ios_blocked" != "yes" ]; then
+             if [ "$resultunlocktype" == "DNS" ]; then yellow "$service_name: 解锁 $resultunlocktype [$countryCode]"; else green "$service_name: 解锁 $resultunlocktype [$countryCode]"; fi
+        elif [ "$api_blocked" == "yes" ] && [ "$ios_blocked" == "yes" ]; then
+            red "$service_name: 失败"
+        elif [ "$api_blocked" != "yes" ] && [ "$ios_blocked" == "yes" ]; then
+             yellow "$service_name: 仅网页可用 [$countryCode]"
+        elif [ "$api_blocked" == "yes" ] && [ "$ios_blocked" != "yes" ]; then
+             yellow "$service_name: 仅 APP 可用 [$countryCode]"
+        else # Handle curl errors
+             red "$service_name: 失败 (Curl Error)"
+        fi
+    }
+    # --- 函数主执行体 ---
+    
+    # 获取 IP (使用全局 IP 变量)
+    # IP=$(curl -s ipv4.ip.sb || curl -s ifconfig.me) # No longer needed here
+    if [ -z "$IP" ]; then
+        IP=$(curl -s ipv4.ip.sb || curl -s ifconfig.me) # Try again if global IP is empty
+        if [ -z "$IP" ]; then
+             red "❌ 自动获取公网 IP 失败"
+             read -rp "按任意键返回菜单..."
+             return
+         fi
+    fi
+    
+    # 初始化
+    # ibar_step=0 # Removed progress bar
+    # clear # Don't clear here, clear in the main loop
+
+    # 生成 UA 并读取 Cookie
+    generate_random_user_agent
+    read_ref
+    
+    # 按顺序执行检测 (全部使用 IPv4)
+    # Kill progress bar is removed as progress bar is removed
+    MediaUnlockTest_TikTok 4
+    MediaUnlockTest_DisneyPlus 4
+    MediaUnlockTest_Netflix 4
+    MediaUnlockTest_YouTube_Premium 4
+    MediaUnlockTest_PrimeVideo_Region 4
+    MediaUnlockTest_Spotify 4
+    OpenAITest 4
+    
+    # echo -ne "$Font_LineClear" 1>&2 # Removed progress bar clear
+
+    # 移除 show_media 调用
+
+    echo # Add a blank line for spacing
+    green "检测完成。"
+    # (修改) 添加感谢
+    yellow "感谢xy开源"
+    read -rp "按任意键返回菜单..."
+}
+
+# 0. 依赖检查 (已修改)
+check_deps() {
+    # (已修改) 增加了 dnsutils 和 netcat-openbsd
+    green "正在检查基础依赖 (curl, wget, jq, xxd, tar, bc, clear, dnsutils, nc)..."
+    local missing=0
+    local missing_pkgs=""
+    
+    check_cmd() {
+        local cmd=$1
+        local pkg=$2
+        if ! command -v $cmd &> /dev/null; then
+            yellow "未找到 $cmd... (需要 $pkg)"
+            missing=1
+            # 记录缺失的包，避免重复安装
+            if ! echo "$missing_pkgs" | grep -q "$pkg"; then
+                missing_pkgs+="$pkg "
+            fi
+        fi
+    }
+
+    check_cmd "curl" "curl"
+    check_cmd "wget" "wget"
+    check_cmd "jq" "jq"
+    check_cmd "xxd" "xxd"
+    check_cmd "tar" "tar"
+    check_cmd "bc" "bc"
+    check_cmd "clear" "ncurses-bin"
+    check_cmd "dig" "dnsutils"
+    check_cmd "nslookup" "dnsutils"
+    check_cmd "nc" "netcat-openbsd"
 
     if [ "$missing" -eq 1 ]; then
-        yellow "正在尝试自动安装缺失的依赖..."
+        yellow "正在尝试自动安装缺失的依赖：$missing_pkgs"
         if command -v apt &> /dev/null; then
             apt update -y >/dev/null 2>&1
-            # ncurses-bin 提供了 'clear' 命令
-            apt install -y curl wget jq xxd tar bc ncurses-bin >/dev/null 2>&1
+            apt install -y $missing_pkgs >/dev/null 2>&1
         else
-            red "非 apt 系统，请手动安装 curl, wget, jq, xxd, tar, bc, ncurses-bin"
+            red "非 apt 系统，请手动安装 $missing_pkgs"
             exit 1
         fi
         
         # 重新检查
-        for cmd in curl wget jq xxd tar bc clear; do
-            if ! command -v $cmd &> /dev/null; then
-                 red "依赖 $cmd 自动安装失败。请手动安装后重试。"
-                 exit 1
-            fi
-        done
+        green "重新检查依赖..."
+        check_deps
     fi
     green "✅ 依赖检查通过"
 }
+
 #====== 主菜单循环 ======
 check_deps # 运行一次依赖检查
 check_connectivity || true # (新增) 检查网络连接性 (修正：|| true 防止 set -e 退出)
@@ -987,9 +1370,10 @@ while true; do
     echo "1. 安装 VLESS + Reality"
     echo "2. 进行测速 (Ookla Speedtest)"
     echo "3. ip质量检测 (感谢xy开源)"
-    echo "4. 退出"
+    echo "4. 流媒体解锁检测(感谢xy开源)" 
+    echo "5. 退出" 
     echo "====================================="
-    read -p "请选择模式 [1-4]: " MODE
+    read -p "请选择模式 [1-5]: " MODE
 
     case "$MODE" in
         1)
@@ -1002,11 +1386,14 @@ while true; do
             run_ip_quality_check || true
             ;;
         4)
+            run_streaming_check # 你新增的 case
+            ;;
+        5)
             green "退出脚本。"
             exit 0 # 正常退出
             ;;
         *)
-            red "无效输入，请输入 1-4 之间的数字。"
+            red "无效输入，请输入 1-5 之间的数字。"
             sleep 2 # 暂停2秒让用户看到错误
             ;;
     esac
